@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Attendance Selfie Camera</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 18px; background: #f3f6fa; color: #182230; font-family: Arial, sans-serif; }
+    main { max-width: 520px; margin: 0 auto; }
+    .card { background: #fff; border: 1px solid #e3e8ef; border-radius: 16px; padding: 20px; box-shadow: 0 5px 20px rgba(16,24,40,.06); }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { color: #667085; font-size: 14px; line-height: 1.5; }
+    video, #preview { display: block; width: 100%; max-height: 62vh; object-fit: cover; border-radius: 12px; background: #101828; }
+    #preview { background: #fff; }
+    .row { display: flex; gap: 10px; margin-top: 14px; }
+    button { flex: 1; min-height: 48px; border: 0; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .primary { background: #175cd3; color: #fff; }
+    .success { background: #067647; color: #fff; }
+    .secondary { background: #eef2f6; color: #344054; }
+    .status { margin-top: 13px; padding: 11px; background: #f2f4f7; border-radius: 9px; font-size: 14px; line-height: 1.45; }
+    .error { background: #fef3f2; color: #b42318; }
+    .hidden { display: none !important; }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1 id="heading">Attendance selfie</h1>
+    <p id="instructions">This page is opened by your company attendance app. Allow camera access and take a fresh selfie.</p>
+
+    <video id="video" autoplay playsinline muted class="hidden"></video>
+    <canvas id="canvas" class="hidden"></canvas>
+    <img id="preview" alt="Selfie preview" class="hidden">
+
+    <div id="startRow" class="row">
+      <button id="startBtn" class="primary" type="button">Start camera</button>
+      <button id="cancelBtn" class="secondary" type="button">Cancel</button>
+    </div>
+    <div id="captureRow" class="row hidden">
+      <button id="captureBtn" class="primary" type="button">Capture selfie</button>
+      <button id="stopBtn" class="secondary" type="button">Cancel</button>
+    </div>
+    <div id="previewRow" class="row hidden">
+      <button id="retakeBtn" class="secondary" type="button">Retake</button>
+      <button id="useBtn" class="success" type="button">Use this selfie</button>
+    </div>
+    <div id="status" class="status" role="status">Connecting to your attendance app…</div>
+    <p class="small">The photo is sent back to the attendance app and saved in the company’s private Google Drive folder. This page does not store photos on GitHub Pages.</p>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const params = new URLSearchParams(window.location.search);
+  const action = String(params.get('action') || '').toUpperCase();
+  const nonce = String(params.get('nonce') || '');
+  const $ = (id) => document.getElementById(id);
+  let stream = null;
+  let photoDataUrl = '';
+  let parentOrigin = '';
+
+  if (!window.opener || (action !== 'IN' && action !== 'OUT') || !/^[a-f0-9]{32}$/.test(nonce)) {
+    $('status').textContent = 'This camera page must be opened from the company attendance app. Close this tab and tap IN or OUT again.';
+    $('status').classList.add('error');
+    $('startBtn').disabled = true;
+    return;
+  }
+
+  $('heading').textContent = action === 'IN' ? 'IN attendance selfie' : 'OUT attendance selfie';
+
+  // Handshake: parent confirms the opener origin; photo is later sent only to that origin.
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.opener) return;
+    const data = event.data || {};
+    if (data.type === 'ATTENDANCE_CAMERA_INIT' && data.nonce === nonce && data.action === action) {
+      parentOrigin = event.origin;
+      $('status').textContent = 'Connected. Tap Start camera to continue.';
+    }
+  });
+  window.opener.postMessage({ type: 'ATTENDANCE_CAMERA_READY', action, nonce }, '*');
+
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    $('video').srcObject = null;
+  }
+
+  async function startCamera() {
+    $('status').classList.remove('error');
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera access needs a supported browser and a secure HTTPS page.');
+      }
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'user' } },
+        audio: false
+      });
+      $('video').srcObject = stream;
+      $('video').classList.remove('hidden');
+      $('preview').classList.add('hidden');
+      $('startRow').classList.add('hidden');
+      $('captureRow').classList.remove('hidden');
+      await $('video').play();
+      $('status').textContent = 'Camera is ready. Keep your face visible and tap Capture selfie.';
+    } catch (error) {
+      const reason = error && error.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access for this site in Chrome settings and try again.'
+        : (error && error.message ? error.message : String(error));
+      $('status').textContent = 'Unable to open camera: ' + reason;
+      $('status').classList.add('error');
+    }
+  }
+
+  function capture() {
+    const video = $('video');
+    if (!stream || !video.videoWidth || !video.videoHeight) {
+      $('status').textContent = 'Camera is not ready. Wait for the live preview and try again.';
+      $('status').classList.add('error');
+      return;
+    }
+    const canvas = $('canvas');
+    const maxWidth = 900;
+    const scale = Math.min(1, maxWidth / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    photoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+    if (photoDataUrl.length > 4 * 1024 * 1024) {
+      $('status').textContent = 'Photo is too large. Please retake it.';
+      $('status').classList.add('error');
+      return;
+    }
+    $('preview').src = photoDataUrl;
+    $('preview').classList.remove('hidden');
+    $('video').classList.add('hidden');
+    $('captureRow').classList.add('hidden');
+    $('previewRow').classList.remove('hidden');
+    stopCamera();
+    $('status').textContent = 'Check your photo. Tap Retake or Use this selfie.';
+    $('status').classList.remove('error');
+  }
+
+  function retake() {
+    photoDataUrl = '';
+    $('preview').src = '';
+    $('preview').classList.add('hidden');
+    $('previewRow').classList.add('hidden');
+    $('startRow').classList.remove('hidden');
+    $('status').textContent = 'Tap Start camera to take a new selfie.';
+  }
+
+  function usePhoto() {
+    if (!parentOrigin) {
+      $('status').textContent = 'The attendance app connection is not ready. Close this tab and open the camera again from IN or OUT.';
+      $('status').classList.add('error');
+      return;
+    }
+    if (!photoDataUrl) return;
+    $('useBtn').disabled = true;
+    $('status').textContent = 'Sending selfie to the attendance app…';
+    window.opener.postMessage({
+      type: 'ATTENDANCE_SELFIE_CAPTURED',
+      action,
+      nonce,
+      photoDataUrl
+    }, parentOrigin);
+    setTimeout(() => window.close(), 250);
+  }
+
+  function cancel() {
+    stopCamera();
+    if (parentOrigin && window.opener) {
+      window.opener.postMessage({ type: 'ATTENDANCE_CAMERA_CANCELLED', action, nonce }, parentOrigin);
+    }
+    window.close();
+  }
+
+  $('startBtn').addEventListener('click', startCamera);
+  $('captureBtn').addEventListener('click', capture);
+  $('retakeBtn').addEventListener('click', retake);
+  $('useBtn').addEventListener('click', usePhoto);
+  $('cancelBtn').addEventListener('click', cancel);
+  $('stopBtn').addEventListener('click', cancel);
+  window.addEventListener('pagehide', stopCamera);
+})();
+</script>
+</body>
+</html>
