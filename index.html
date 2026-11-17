@@ -171,7 +171,12 @@
     const scale = Math.min(1, maxWidth / video.videoWidth);
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+const ctx = canvas.getContext('2d');
+ctx.save();
+ctx.translate(canvas.width, 0);
+ctx.scale(-1, 1);
+ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+ctx.restore();
     photoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
     if (photoDataUrl.length > 4 * 1024 * 1024) {
       $('status').textContent = 'Photo is too large. Please retake it.';
