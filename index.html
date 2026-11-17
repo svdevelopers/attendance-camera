@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,6 +14,10 @@
     h1 { margin: 0 0 8px; font-size: 22px; }
     p { color: #667085; font-size: 14px; line-height: 1.5; }
     video, #preview { display: block; width: 100%; max-height: 62vh; object-fit: cover; border-radius: 12px; background: #101828; }
+
+    /* Mirror the live front-camera preview */
+    #video { transform: scaleX(-1); }
+
     #preview { background: #fff; }
     .row { display: flex; gap: 10px; margin-top: 14px; }
     button { flex: 1; min-height: 48px; border: 0; border-radius: 10px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
@@ -63,6 +68,7 @@
   let photoDataUrl = '';
   let parentOrigin = '';
   const MAX_GPS_ACCURACY_METERS = 60;
+
   // The company coordinates are intentionally NOT placed on this public GitHub Pages site.
   // The private Apps Script backend checks the geofence when it receives the GPS reading.
 
@@ -171,7 +177,15 @@
     const scale = Math.min(1, maxWidth / video.videoWidth);
     canvas.width = Math.round(video.videoWidth * scale);
     canvas.height = Math.round(video.videoHeight * scale);
-canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Save the captured photo in the same mirrored orientation as the live preview.
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
     photoDataUrl = canvas.toDataURL('image/jpeg', 0.72);
     if (photoDataUrl.length > 4 * 1024 * 1024) {
       $('status').textContent = 'Photo is too large. Please retake it.';
